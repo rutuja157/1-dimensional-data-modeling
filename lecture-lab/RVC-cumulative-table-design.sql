@@ -52,7 +52,7 @@ case when y.season_stats is null then ARRAY[row(
 												t.reb,
 												t.ast
 											)::season_stats]
-	                                when t.season is not null then 
+	when t.season is not null then 
 									y.season_stats || ARRAY[row(
 												t.season,
 												t.gp,
