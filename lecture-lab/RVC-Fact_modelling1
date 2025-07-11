@@ -1,0 +1,111 @@
+-- select game_id,team_id,player_id,count(*)
+-- from game_details
+-- group by 1,2,3
+-- having count(1) > 1
+
+--remove duplicate rows and 
+-- to brinf column "when" column which we will bring from games table
+--we dont need few columns like team_abbrevation ,team_id city will be limited and etc
+--need to brinf game_date_est from games tables so it brings the value for analysis by giving "when" column
+--gd.home_team_id,--can use this column we want to see when the player plays at home if he plays better than away from home
+-- comment column -high cardinality-row data col.umn that we want to parse
+--min column is string and hard tomuse so change itinto fractional more usable 
+--fact modelling-are all the column are usefull?
+insert into fct_game_details
+with deduped as(
+select g.game_date_est,
+g.season,
+g.home_team_id,
+g.game_id,
+gd.*,
+row_number() over(partition by gd.game_id,gd.team_id,gd.player_id order by g.game_date_est) as row_num
+from game_details gd
+join games g on gd.game_id = g.game_id
+)
+
+select game_date_est as dim_game_date,
+season as team_season,
+team_id as dim_team_id, 
+player_id as dim_player_id,
+player_name as dim_player_name,
+start_position as dim_player_start_position,
+team_id = home_team_id as dim_is_playing_at_home,
+coalesce(position('DNP' in comment),0)>0 as dim_did_not_play, --position('DNP' in comment its gives 0 to other non null values
+coalesce(position('DND' in comment),0)>0 as dim_did_not_dress,
+coalesce(position('NWT' in comment),0)>0 as dim_not_with_team,
+-- comment,
+-- split_part(min,':',1) as minutes,
+-- split_part(min,':',2) as seconds,
+cast(split_part(min,':',1) as REAL) + cast(split_part(min,':',2)as REAL)/60 as m_minutes, --can use to find free throws per min or rebounds per minutes
+fgm as m_fgm,
+fga as m_fga,
+fg3m as m_fg3m,
+fg3a as m_fg3a,
+ftm as m_ftm,
+fta as m_fta,
+oreb as m_oreb,
+dreb as m_dreb,
+reb as m_reb,
+ast as m_ast,
+stl as m_stl,
+blk as m_blk,
+"TO" as m_turnovers,
+pf as m_pf,
+pts as m_pts,
+plus_minus as m_plus_minus
+from deduped
+where row_num =1
+
+-- --create DDL
+
+-- create table fct_game_details(
+-- 	dim_game_date DATE,
+-- 	dim_season integer,
+-- 	dim_team_id integer,
+-- 	dim_player_id integer,
+-- 	dim_player_name text,
+-- 	dim_start_position text,
+-- 	dim_is_playing_at_home boolean,
+-- 	dim_did_not_play boolean,
+-- 	dim_did_not_dress boolean,
+-- 	dim_not_with_team boolean,
+-- 	m_minutes real,
+-- 	m_fgm integer,
+-- 	m_fga integer,
+-- 	m_fg3m integer,
+-- 	m_fg3a integer,
+-- 	m_ftm integer,
+-- 	m_fta integer,
+-- 	m_oreb integer,
+-- 	m_dreb integer,
+-- 	m_reb integer,
+-- 	m_ast integer,
+-- 	m_stl integer,
+-- 	m_blk integer,
+-- 	m_turnovers integer,
+-- 	m_pf integer,
+-- 	m_pts integer,
+-- 	m_plus_minus integer,
+-- 	primary key(dim_game_date,dim_player_id,dim_team_id) --you might be filtering on it so put teamidadplayerid
+
+-- )
+
+--now we dont have any duplicates or excessive things ,good naming convensions like all dim we can use as dimentions and m_ can use to aggregate measures.
+--we lost teams data like city,abbravationbut we just join teams table we can get all the data as teams table is not expensive\ large
+select t.*, gd.* from fct_game_details gd join teams t
+on t.team_id = gd.dim_team_id
+
+select * from fct_game_details
+-- lets find the player in the game who like doesnt didnt bailed out in most games 
+
+select dim_player_name ,
+dim_is_playing_at_home,
+count(1) as num_games,
+sum(m_pts) as total_points,
+count(case when dim_not_with_team then 1 end) as bailed_num, --missed games
+cast(count(case when dim_not_with_team then 1 end) as real)/ count(1) as bail_percentage
+from fct_game_details
+group by 1,2
+order by bail_percentage desc
+
+--this query which answers very quickly and easily with new fact data model would have been massive pain to find answers with old data model

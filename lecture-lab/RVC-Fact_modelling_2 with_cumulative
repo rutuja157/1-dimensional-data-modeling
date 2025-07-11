@@ -1,0 +1,184 @@
+-- select MAX(event_time),  --2023-04-27
+--        MIN (event_time)  --2023-01-01
+-- from events;
+
+-- we can cumulate this up and find all sort of different users are acrtive
+
+-- create table users_cumulated(
+-- 	user_id text,
+-- 	dates_active DATE[], ----the list of dates in the past where the user was active in arrey
+-- 	date Date,-- currentdate for the user
+-- 	primary key (user_id,date)
+-- )
+
+--what will it look like on a given date
+-- we know everything is srats on jan 1st, so we willbuild something that we shpw jan1st to feb1stor 31st
+--by having users_cumulated data and today data
+--we wanna make it so that we create data do each day going forward
+
+-- insert into users_cumulated
+-- with yesterday as(
+-- 	select *
+-- 	from users_cumulated
+-- 	where date = DATE('2022-12-31')
+-- ),
+----we need all the  users who are active today
+-- today as(
+-- 	select 
+-- 	cast(user_id as text) as user_id,
+-- 	DATE(cast(event_time as timestamp)) as date_active
+-- 	from events
+-- 	where date(cast(event_time as timestamp)) = DATE('2023-01-01') --this will give what the value was today
+-- 	and user_id is not null
+-- 	group by user_id,DATE(cast(event_time as timestamp))
+-- )
+
+-- select 
+-- 	coalesce(t.user_id,y.user_id),
+-- 	case when y.dates_active is null then array[t.date_active]
+-- 	when t.date_active is null then y.dates_active
+-- 	else ARRAY [t.date_active] || y.dates_active
+-- 	end 
+--     as dates_active,
+-- 	--t.date_active might not exist yet so what we do is pick y.date if null
+-- 	--we want evrything here to be on same date so y.date+1 day
+-- 	coalesce(t.date_active,y.date + interval '1 day') as date
+-- from today t
+-- full outer join yesterday y
+-- on t.user_id = y.user_id
+
+
+-- select * from users_cumulated
+
+
+-- now start cumulative procees by changing date in yesterday from '2022-12-31' to '2023-01-01' and run again to add in cumulated table
+--to see growth of each user
+-- insert into users_cumulated
+-- with yesterday as(
+-- 	select *
+-- 	from users_cumulated
+-- 	where date = DATE('2023-01-01') 
+-- ),
+
+-- today as(
+-- 	select 
+-- 	cast(user_id as text) as user_id,
+-- 	DATE(cast(event_time as timestamp)) as date_active
+-- 	from events
+-- 	where date(cast(event_time as timestamp)) = DATE('2023-01-02') --in cumulative process added next day
+-- 	and user_id is not null
+-- 	group by user_id,DATE(cast(event_time as timestamp))
+-- )
+-- select 
+-- 	coalesce(t.user_id,y.user_id),
+-- 	case when y.dates_active is null then array[t.date_active]
+-- 	when t.date_active is null then y.dates_active
+-- 	else ARRAY [t.date_active] || y.dates_active
+-- 	end 
+--     as dates_active,
+-- 	coalesce(t.date_active,y.date + interval '1 day') as date
+-- from today t
+-- full outer join yesterday y
+-- on t.user_id = y.user_id
+
+-- select * from users_cumulated where date = '2023-01-03'
+
+--do the same for all 30 days by changing today and yesterday 
+insert into users_cumulated
+with yesterday as(
+	select *
+	from users_cumulated
+	where date = DATE('2023-01-30') 
+),
+
+today as(
+	select 
+	cast(user_id as text) as user_id,
+	DATE(cast(event_time as timestamp)) as date_active
+	from events
+	where date(cast(event_time as timestamp)) = DATE('2023-01-31') --in cumulative process added next day
+	and user_id is not null
+	group by user_id,DATE(cast(event_time as timestamp))
+)
+select 
+	coalesce(t.user_id,y.user_id),
+	case when y.dates_active is null then array[t.date_active]
+	when t.date_active is null then y.dates_active
+	else ARRAY [t.date_active] || y.dates_active
+	end 
+    as dates_active,
+	coalesce(t.date_active,y.date + interval '1 day') as date
+from today t
+full outer join yesterday y
+on t.user_id = y.user_id
+
+select * from users_cumulated where date = DATE('2023-01-31')
+-------------------------------------------------------------------------------------------
+---now how do we turn this date_active column into datelist eg.(100001000001)or
+--leftmost bit is most recent bit
+--generate datelist for 30days
+
+select * from generate_series(1,31)
+select * from generate_series(date('2023-01-01'),date('2023-01-31'),interval '1 day')
+-----------------
+--------------
+with users as(
+	select * 
+	from users_cumulated where date = DATE('2023-01-31')
+),
+
+	series as(
+		select * 
+		from generate_series(date('2023-01-01'),date('2023-01-31'),interval '1 day') as series_date
+),
+
+
+-- select *
+-- from users cross join series
+-- where user_id = '406876712821807740' 
+
+-- see if series date present in active array and if it is then create bit value
+-- select  
+-- 	dates_active @> array[date(series_date)],
+--     date- date(series_date) -- no of days between these 2 dates current date filter down to 31st and series date generate from above
+--     ,*
+-- from users cross join series
+-- where user_id = '406876712821807740' 
+
+-- placeholder_ints as (
+-- select 
+-- 	dates_active @> array[date(series_date)],
+--     date- date(series_date) ,
+-- 	cast(case when dates_active @> array[date(series_date)]
+-- 	then cast(POW(2,32- (date- date(series_date))) as bigint)
+-- 	else 0
+-- 	end as BIT(32)) as placeholder_int_value
+-- 	,*
+-- from users cross join series
+-- where user_id = '406876712821807740' )
+--select * from placeholder_ints
+
+place_holder_ints as (
+select 
+	dates_active @> array[date(series_date)],
+    date- date(series_date) ,
+	case when dates_active @> array[date(series_date)]
+	then cast(POW(2,32- (date- date(series_date))) as bigint) --convert all dates to integer values that are powers of 2
+	else 0
+	end as place_holder_int_value
+	,
+	*
+from users cross join series
+-- where user_id = '406876712821807740' 
+)
+
+select user_id,
+		cast(cast(sum(place_holder_int_value) as bigint) as bit(32)),
+		bit_count(cast(cast(sum(place_holder_int_value) as bigint) as bit(32))) >0  as dim_is_monthly_active,
+		bit_count(cast('11111110000000000000000000000000' as BIT(32)) &
+		    cast(cast(sum(place_holder_int_value) as bigint) as bit(32))) > 0 as dim_as_weekly_active,
+		bit_count(cast('10000000000000000000000000000000' as BIT(32)) &
+		    cast(cast(sum(place_holder_int_value) as bigint) as bit(32))) > 0 as dim_as_daily_active	
+from place_holder_ints
+group by user_id
+
