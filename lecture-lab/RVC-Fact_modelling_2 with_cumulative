@@ -1,3 +1,5 @@
+
+--Fact data modelling:compact tables fro efficient data representation
 -- select MAX(event_time),  --2023-04-27
 --        MIN (event_time)  --2023-01-01
 -- from events;
@@ -171,6 +173,10 @@ select
 from users cross join series
 -- where user_id = '406876712821807740' 
 )
+--to find monthly daily active users we can sum up the place_holder_int_value
+-- and then convert it to bit(32) and then use bitwise operations to find out
+-- if the user is active in the last 30 days, last 7 days or last 1 day
+-- we can use bitwise operations to find out if the user is active in the last 30 days, last 7 days or last 1 day
 
 select user_id,
 		cast(cast(sum(place_holder_int_value) as bigint) as bit(32)),

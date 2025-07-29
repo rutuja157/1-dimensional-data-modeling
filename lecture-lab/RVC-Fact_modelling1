@@ -22,7 +22,6 @@ row_number() over(partition by gd.game_id,gd.team_id,gd.player_id order by g.gam
 from game_details gd
 join games g on gd.game_id = g.game_id
 )
-
 select game_date_est as dim_game_date,
 season as team_season,
 team_id as dim_team_id, 
@@ -33,9 +32,6 @@ team_id = home_team_id as dim_is_playing_at_home,
 coalesce(position('DNP' in comment),0)>0 as dim_did_not_play, --position('DNP' in comment its gives 0 to other non null values
 coalesce(position('DND' in comment),0)>0 as dim_did_not_dress,
 coalesce(position('NWT' in comment),0)>0 as dim_not_with_team,
--- comment,
--- split_part(min,':',1) as minutes,
--- split_part(min,':',2) as seconds,
 cast(split_part(min,':',1) as REAL) + cast(split_part(min,':',2)as REAL)/60 as m_minutes, --can use to find free throws per min or rebounds per minutes
 fgm as m_fgm,
 fga as m_fga,

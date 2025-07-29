@@ -1,0 +1,131 @@
+--long-array metrics data model schema 
+
+-- create table array_metrics(
+-- 		user_id numeric,
+-- 		month_start date,
+-- 		metric_name text,
+-- 		metric_array real[], --can b integer[]
+-- 		primary key (user_id,month_start,metric_name)
+-- )
+--------------
+--------------
+-- u have to think about this in term of partition 
+--what we want to do here is we want to start with create that daily aggregate function
+
+-- with daily_aggregate as(
+-- select 
+-- 	user_id, 
+-- 	count(1) as num_site_hits
+-- from events
+-- where 
+-- date(event_time) = date('2023-01-01') --we are doing this for month of jan and thats how we gonna build up this array
+-- and user_id is not null
+-- group by user_id
+-- ),
+
+-- -- select * from daily_aggregate --aggregaret for the day with where clause = date(event_time) = date('2023-01-01')
+
+-- -- now we need yesterdays aggregate ,think about in production when its running like on jan 1 array will have 1 value eg 34 on 2nd it will have 2 value eg.3 and ...
+-- -- that something we need to consider when we are building this out
+
+-- yesterday_array as(
+-- 	select *
+-- 	from array_metrics
+-- 	where month_start = date('2023-01-01')
+-- )
+
+-- select *
+-- from daily_aggregate da full outer join yesterday_array ya on da.user_id = ya.user_id
+
+-------------------------
+-------------------------
+--now we want to create new array fro this daily_aggregate, and 
+--then we will have to fill backwards essentially from that date so added event_date in daily_aggregate selection
+
+insert into array_metrics
+with daily_aggregate as(
+select 
+	user_id, 
+	date(event_time) as date, -- fill backwards from this date
+	count(1) as num_site_hits
+from events
+where 
+date(event_time) = date('2023-01-03') --we are doing this for month of jan and thats how we gonna build up this array
+and user_id is not null
+group by user_id,date(event_time)
+),
+
+yesterday_array as(
+	select *
+	from array_metrics --new table which is empty at start
+	where month_start = date('2023-01-01')
+)
+
+select 
+coalesce(da.user_id,ya.user_id) as user_id,
+coalesce(ya.month_start,date_trunc('month',da.date)) as month_start,
+'site_hits' as metric_name,
+--to build arrey, in 1st case when yesterday arraynis completly empty then we know all users are on other side (in daily agg table)
+case when ya.metric_array is not null then
+		ya.metric_array || array[coalesce(da.num_site_hits,0)]
+	 when ya.metric_array is null
+	 	then array_fill(0,array[coalesce(date-date(date_trunc('month',date)),0)])
+		 ||array[coalesce(da.num_site_hits,0)]
+	end as metric_array
+from daily_aggregate da full outer join yesterday_array ya on da.user_id = ya.user_id
+on conflict(user_id,month_start,metric_name)
+do 
+  update set metric_array = excluded.metric_array;
+
+--in big data word you wont have to worry about this do..update set because you get to overwrite ,and you dont have to 
+--worry about to set the updates of things
+--17996503045784700000	"2023-01-01"	"site_hits"	{2,0}
+--5860948808711279000	"2023-01-01"	"site_hits"	{2} -- here this user didnt hit the page on jan1st and hit the page twice on jan2nd
+--but we need 0 at the beginbing for jan 1st thats why added array_fill(0,7thjan-01)=000000
+--edge-ERROR:  dimension values cannot be null- when iots completly empty this 
+-- select * from array_metrics
+
+-- delete from array_metrics
+
+select cardinality(metric_array),count(1) from array_metrics
+group by 1
+ ---------
+
+
+ --how to do the aggreation of this so that we can do the aggragate, we can do it with metric name and we can 
+--group on metric name , also you can join on userid and bring on other dimentions
+--we have 3 days of data and we want to aggregate this and what we want back here is 
+--dimentional analysis on 3 days
+select 
+	metric_name,month_start,
+	array[sum(metric_array[1]),
+	sum(metric_array[2]),
+	sum(metric_array[3])] as summed_array
+from array_metrics
+group by metric_name,month_start
+
+--and then we can unnest
+
+select 
+	metric_name,month_start,
+	unnest(array[sum(metric_array[1]),
+	sum(metric_array[2]),
+	sum(metric_array[3])])
+from array_metrics
+group by metric_name,month_start
+
+----
+
+with agg as(
+select 
+	metric_name,month_start,
+	array[sum(metric_array[1]),
+	sum(metric_array[2]),
+	sum(metric_array[3])] as summed_array
+from array_metrics
+group by metric_name,month_start
+)
+
+select metric_name,month_start + cast(cast(index -1 as text) || 'day' as interval),
+     elem as value
+from agg cross join unnest(agg.summed_array) with ordinality as a(elem,index)
